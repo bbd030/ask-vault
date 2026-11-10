@@ -1,0 +1,17 @@
+# 本地密钥配置，保留配置示例
+.env
+.env.*
+!.env.example
+
+# Python 虚拟环境和缓存
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 前端依赖和构建结果
+node_modules/
+dist/
+
+# 日志
+*.log
