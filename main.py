@@ -4,15 +4,28 @@ from pathlib import Path
 def load_text(file_path: Path) -> str:
     return file_path.read_text(encoding="utf-8")
 
-def split_text(text: str, chunk_size: int = 30) -> list[str]:
-    chunks = []
+def split_text(
+    text: str,
+    chunk_size: int = 30,
+    overlap: int = 5,
+) -> list[str]:
+    if chunk_size <= 0:
+        raise ValueError("片段大小必须大于 0")
 
-    for start in range(0, len(text), chunk_size):
-        chunk = text[start:start + chunk_size]
-        chunks.append(chunk)
+    if not 0 <= overlap < chunk_size:
+        raise ValueError("重叠长度必须大于等于 0，并且小于片段大小")
+
+    chunks = []
+    step = chunk_size - overlap
+
+    for start in range(0, len(text), step):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+
+        if end >= len(text):
+            break
 
     return chunks
-
 
 if __name__ == "__main__":
     project_dir = Path(__file__).resolve().parent
