@@ -39,9 +39,20 @@ if __name__ == "__main__":
     print(text)
 
     chunks = split_text(text)
-
-    print(f"\n切分结果：共 {len(chunks)} 个片段")
+    chunk_records = []
 
     for index, chunk in enumerate(chunks, start=1):
-        print(f"\n--- 片段 {index}，共 {len(chunk)} 个字符 ---")
-        print(chunk)
+        record = {
+            "chunk_id": index,
+            "source": file_path.name,
+            "text": chunk,
+        }
+        chunk_records.append(record)
+
+    print(f"\n切分结果：共 {len(chunk_records)} 个片段")
+
+    for record in chunk_records:
+        print(f"\n--- 片段 {record['chunk_id']} ---")
+        print(f"来源：{record['source']}")
+        print(f"字符数量：{len(record['text'])}")
+        print(record["text"])
