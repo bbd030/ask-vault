@@ -1,3 +1,5 @@
+import os
+from dotenv import load_dotenv
 from pathlib import Path
 
 
@@ -29,6 +31,13 @@ def split_text(
 
 if __name__ == "__main__":
     project_dir = Path(__file__).resolve().parent
+    load_dotenv(project_dir / ".env")
+
+    embedding_model = os.getenv("EMBEDDING_MODEL")
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+
+    print(f"Embedding 模型：{embedding_model}")
+    print("API Key 状态：", "已配置" if api_key else "未配置")
     file_path = project_dir / "data" / "sample.txt"
 
     text = load_text(file_path)
