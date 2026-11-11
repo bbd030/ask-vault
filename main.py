@@ -1,3 +1,4 @@
+from embedding import embed_text
 import os
 from dotenv import load_dotenv
 from pathlib import Path
@@ -51,10 +52,14 @@ if __name__ == "__main__":
     chunk_records = []
 
     for index, chunk in enumerate(chunks, start=1):
+        print(f"正在向量化片段 {index}/{len(chunks)}……")
+        vector = embed_text(chunk)
+
         record = {
             "chunk_id": index,
             "source": file_path.name,
             "text": chunk,
+            "embedding": vector,
         }
         chunk_records.append(record)
 
@@ -64,4 +69,5 @@ if __name__ == "__main__":
         print(f"\n--- 片段 {record['chunk_id']} ---")
         print(f"来源：{record['source']}")
         print(f"字符数量：{len(record['text'])}")
+        print(f"向量维度：{len(record['embedding'])}")
         print(record["text"])
