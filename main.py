@@ -1,3 +1,5 @@
+import hashlib
+from vector_store import load_index, save_index
 from generator import answer_question
 from embedding import embed_text
 import os
@@ -49,20 +51,36 @@ if __name__ == "__main__":
     print("文档内容：")
     print(text)
 
-    chunks = split_text(text)
-    chunk_records = []
+    chunk_size = 30
+    overlap = 5
+    chunks = split_text(text, chunk_size=chunk_size, overlap=overlap)
+    index_path = project_dir / "data" / "vector_index.json"
+    metadata = {
+        "source": file_path.name,
+        "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "embedding_model": embedding_model,
+        "chunk_size": chunk_size,
+        "overlap": overlap,
+        "chunk_count": len(chunks),
+    }
+    chunk_records = load_index(index_path, metadata)
 
-    for index, chunk in enumerate(chunks, start=1):
-        print(f"正在向量化片段 {index}/{len(chunks)}……")
-        vector = embed_text(chunk)
-
-        record = {
-            "chunk_id": index,
-            "source": file_path.name,
-            "text": chunk,
-            "embedding": vector,
-        }
-        chunk_records.append(record)
+    if chunk_records is None:
+        print("本地索引不存在或已失效，正在生成文档向量……")
+        chunk_records = []
+        for index, chunk in enumerate(chunks, start=1):
+            print(f"正在向量化片段 {index}/{len(chunks)}……")
+            vector = embed_text(chunk)
+            chunk_records.append({
+                "chunk_id": index,
+                "source": file_path.name,
+                "text": chunk,
+                "embedding": vector,
+            })
+        save_index(index_path, metadata, chunk_records)
+        print(f"文档向量已保存：{index_path.name}")
+    else:
+        print(f"已从本地索引读取 {len(chunk_records)} 个片段，无需重新向量化文档。")
 
     print(f"\n切分结果：共 {len(chunk_records)} 个片段")
 
