@@ -1,3 +1,4 @@
+from generator import answer_question
 from embedding import embed_text
 import os
 from dotenv import load_dotenv
@@ -94,3 +95,20 @@ if __name__ == "__main__":
         print(f"相似度：{result['score']:.4f}")
         print(f"来源：{record['source']}，片段 {record['chunk_id']}")
         print(record["text"])
+
+    print("\n正在根据检索资料生成回答……")
+    try:
+        answer_result = answer_question(question, results)
+    except RuntimeError as exc:
+        print(f"\n回答生成失败：{exc}")
+    else:
+        print("\n回答：")
+        print(answer_result["answer"])
+
+        if answer_result["sources"]:
+            print("\n提供给模型的参考资料：")
+            for source in answer_result["sources"]:
+                print(
+                    f"[{source['id']}] {source['source']}，"
+                    f"片段 {source['chunk_id']}"
+                )
