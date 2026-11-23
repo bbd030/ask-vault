@@ -1,3 +1,4 @@
+from milvus_store import MilvusVectorStore
 import hashlib
 from vector_store import load_index, save_index
 from generator import answer_question
@@ -98,11 +99,24 @@ if __name__ == "__main__":
 
     query_vector = embed_text(question, text_type="query")
 
-    results = search_chunks(
-        records=chunk_records,
-        query_vector=query_vector,
-        top_k=2,
-    )
+    backend = os.getenv("VECTOR_BACKEND", "milvus").strip().lower()
+    if backend == "milvus":
+        store = MilvusVectorStore(
+            uri=os.getenv("MILVUS_URI", "http://127.0.0.1:19630"),
+            metadata=metadata,
+            dimension=len(query_vector),
+            collection_prefix=os.getenv("MILVUS_COLLECTION", "ask_vault"),
+        )
+        try:
+            updated = store.sync_records(chunk_records)
+            print("文档向量已写入 Milvus。" if updated else "Milvus 中已存在当前文档版本。")
+            results = store.search(query_vector, top_k=2)
+        finally:
+            store.close()
+    elif backend == "json":
+        results = search_chunks(chunk_records, query_vector, top_k=2)
+    else:
+        raise ValueError("VECTOR_BACKEND 只能设置为 milvus 或 json")
 
     print("\n检索结果：")
 
