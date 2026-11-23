@@ -17,7 +17,8 @@ TXT 文档 → 重叠切分 → Embedding → 本地向量缓存 → Milvus 入�
 - [x] Milvus 持久化存储、版本隔离与数据库检索
 - [ ] 按段落、句子切分及更多文档格式
 - [x] Flask 健康检查和问答接口
-- [ ] 文件上传接口与 Vue 页面
+- [x] Vue 问答页面：提问、回答、参考来源与检索片段
+- [ ] 文件上传接口与资料管理
 
 ## 本地启动
 
@@ -78,6 +79,32 @@ docker compose up -d --wait --wait-timeout 180
 | `milvus_store.py` | 集合、入库、文档版本过滤和向量检索 |
 | `generator.py` | 组织参考资料、调用回答模型和处理错误 |
 | `docker-compose.yml` | 本机 Milvus 服务和数据卷 |
+
+## Vue 问答页面
+
+在 Docker Desktop、Milvus 和 Flask 后端已启动的情况下，另开终端启动页面：
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+打开 `http://127.0.0.1:5173`。页面支持输入问题、选择参考片段数量、查看回答与原文来源、失败重试和新建对话。
+
+当前只读取 `data/sample.txt`，尚未提供上传。对话仅保存在当前页面内存中，刷新或新建对话会清空显示。
+
+前端通过 Vite 的 `/api` 代理访问本机 Flask，密钥只在 Python 后端读取。默认后端地址为 `http://127.0.0.1:5000`；如调整后端端口，在启动前端前设置 `ASKVAULT_API_TARGET` 为对应地址。
+
+前端检查和构建：
+
+```powershell
+cd frontend
+npm test
+npm run build
+```
+
+`frontend/src/App.vue` 管理界面和交互，`frontend/src/api.js` 封装问答请求，`frontend/vite.config.js` 配置本机服务与代理。
 
 ## Flask 本机接口
 

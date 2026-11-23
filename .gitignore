@@ -19,3 +19,6 @@ dist/
 # 本地生成的文档及向量索引
 data/vector_index.json
 data/vector_index.tmp
+
+# 本机前端工具运行记录
+.sites-runtime/
