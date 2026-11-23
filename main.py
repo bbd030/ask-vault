@@ -2,7 +2,7 @@ from embedding import embed_text
 import os
 from dotenv import load_dotenv
 from pathlib import Path
-
+from retriever import search_chunks
 
 def load_text(file_path: Path) -> str:
     return file_path.read_text(encoding="utf-8")
@@ -70,4 +70,27 @@ if __name__ == "__main__":
         print(f"来源：{record['source']}")
         print(f"字符数量：{len(record['text'])}")
         print(f"向量维度：{len(record['embedding'])}")
+        print(record["text"])
+
+    question = input("\n请输入你的问题：").strip()
+
+    if not question:
+        raise ValueError("问题不能为空")
+
+    query_vector = embed_text(question, text_type="query")
+
+    results = search_chunks(
+        records=chunk_records,
+        query_vector=query_vector,
+        top_k=2,
+    )
+
+    print("\n检索结果：")
+
+    for rank, result in enumerate(results, start=1):
+        record = result["record"]
+
+        print(f"\n--- 第 {rank} 名 ---")
+        print(f"相似度：{result['score']:.4f}")
+        print(f"来源：{record['source']}，片段 {record['chunk_id']}")
         print(record["text"])

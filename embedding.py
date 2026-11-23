@@ -8,12 +8,15 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
-def embed_text(text: str) -> list[float]:
+def embed_text(
+    text: str,
+    text_type: str = "document",
+) -> list[float]:
     response = dashscope.TextEmbedding.call(
         model=os.environ["EMBEDDING_MODEL"],
         api_key=os.environ["DASHSCOPE_API_KEY"],
         input=[text],
-        text_type="document",
+        text_type=text_type,
     )
 
     if response.status_code != 200:
