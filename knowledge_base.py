@@ -1,3 +1,5 @@
+import json
+import re
 import hashlib
 import os
 from pathlib import Path
@@ -11,7 +13,7 @@ from vector_store import load_index, save_index
 
 
 def load_text(file_path: Path) -> str:
-    return file_path.read_text(encoding="utf-8")
+    return file_path.read_text(encoding="utf-8-sig")
 
 def split_text(
     text: str,
@@ -44,8 +46,18 @@ class KnowledgeBase:
         self.project_dir = project_dir or Path(__file__).resolve().parent
         load_dotenv(self.project_dir / ".env")
 
-    def prepare(self) -> tuple[list[dict], dict]:
+    def prepare(self, document_id: str | None = None) -> tuple[list[dict], dict]:
         file_path = self.project_dir / "data" / "sample.txt"
+        source = file_path.name
+        index_path = self.project_dir / "data" / "vector_index.json"
+        if document_id is not None:
+            if not isinstance(document_id, str) or not re.fullmatch(r"[0-9a-f]{32}", document_id):
+                raise ValueError("文档编号格式不正确")
+            folder = self.project_dir / "data" / "uploads"
+            file_path = folder / f"{document_id}.txt"
+            info = json.loads((folder / f"{document_id}.json").read_text(encoding="utf-8"))
+            source = info["filename"]
+            index_path = folder / f"{document_id}.index.json"
         text = load_text(file_path)
         if not text.strip():
             raise RuntimeError("知识库文档为空")
@@ -55,26 +67,27 @@ class KnowledgeBase:
         chunk_size, overlap = 30, 5
         chunks = split_text(text, chunk_size=chunk_size, overlap=overlap)
         metadata = {
-            "source": file_path.name,
+            "source": source,
             "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "embedding_model": model,
             "chunk_size": chunk_size,
             "overlap": overlap,
             "chunk_count": len(chunks),
         }
-        index_path = self.project_dir / "data" / "vector_index.json"
+        if document_id is not None:
+            metadata["document_id"] = document_id
         records = load_index(index_path, metadata)
         if records is None:
             records = []
             for index, chunk in enumerate(chunks, start=1):
                 records.append({
-                    "chunk_id": index, "source": file_path.name,
+                    "chunk_id": index, "source": source,
                     "text": chunk, "embedding": embed_text(chunk),
                 })
             save_index(index_path, metadata, records)
         return records, metadata
 
-    def ask(self, question: str, top_k: int = 2) -> dict:
+    def ask(self, question: str, top_k: int = 2, document_id: str | None = None) -> dict:
         if not isinstance(question, str) or not question.strip():
             raise ValueError("问题不能为空")
         question = question.strip()
@@ -85,7 +98,7 @@ class KnowledgeBase:
         backend = os.getenv("VECTOR_BACKEND", "milvus").strip().lower()
         if backend not in {"milvus", "json"}:
             raise RuntimeError("VECTOR_BACKEND 只能设置为 milvus 或 json")
-        records, metadata = self.prepare()
+        records, metadata = self.prepare(document_id=document_id)
         query_vector = embed_text(question, text_type="query")
         if backend == "milvus":
             store = MilvusVectorStore(

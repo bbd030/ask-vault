@@ -7,3 +7,31 @@
 .composer textarea::placeholder{color:#6b8175}
 
 @media(max-height:800px) and (min-width:901px){.chat-room{padding-top:22px}.chat-heading{padding-bottom:16px}.welcome{margin:12px auto 14px}.welcome-icon{display:none}.welcome h2{font-size:20px;margin-bottom:5px}.suggestions{gap:6px;margin-top:15px}.suggestions button{padding:8px 14px}}
+
+/* TXT 上传保持在资料区域，并在窄屏换行显示。 */
+.upload-card{margin-top:16px;padding:16px 14px;border:1px solid #315053;border-radius:10px;background:#173639;min-width:0}
+.upload-card h2{font-size:15px;margin:0;color:#dce8e6}
+.upload-card .upload-help{font-size:12px;line-height:1.8;color:#b3ccc6;margin:8px 0 12px}
+.upload-card label{display:block;font-size:12px;margin-bottom:6px;color:#dce8e6}
+.upload-card input[type=file]{display:block;width:100%;min-width:0;font:inherit;font-size:12px;color:#b3ccc6}
+.upload-card input::file-selector-button{font:inherit;border:1px solid #50756e;border-radius:5px;padding:5px 7px;background:#284c48;color:#e0f1e9;margin-right:7px;cursor:pointer}
+.upload-card input:focus-visible{outline:3px solid #65bdad;outline-offset:3px}
+.upload-button{width:100%;margin-top:12px;padding:7px 10px;border:1px solid #80bda9;border-radius:6px;background:#9ee2cd;color:#123e34;font-size:13px;font-weight:600}
+.upload-button:not(:disabled):hover{background:#b5efdc}
+.upload-feedback{font-size:13px;line-height:1.8;margin:12px 0 0;overflow-wrap:anywhere;color:#d3eee4}
+.upload-feedback strong,.upload-feedback span{display:block}
+.upload-error{color:#ffd0bd}
+@media(max-width:900px){.sidebar{flex-wrap:wrap;gap:12px}.upload-card{flex:0 0 100%;margin-top:0}.upload-card form{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.upload-card label{margin:0}.upload-card input[type=file]{flex:1;min-width:140px}.upload-button{width:auto;margin:0}.upload-card .upload-help{margin:5px 0 10px}}
+
+.documents-card{margin-top:16px;padding:16px 14px;border:1px solid #315053;border-radius:10px;background:#173639;min-width:0}
+.documents-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}
+.documents-heading h2{font-size:15px;color:#dce8e6;margin:0}
+.documents-heading button{font-size:12px;border:1px solid #50756e;border-radius:5px;background:#284c48;color:#e0f1e9;padding:4px 6px}
+.documents-card label{display:block;color:#dce8e6;font-size:12px;margin-bottom:6px}
+.documents-card select{display:block;width:100%;min-width:0;background:#284c48;border:1px solid #50756e;border-radius:5px;color:#e0f1e9;font-size:13px;padding:7px 4px}
+.documents-card p{font-size:12px;line-height:1.8;color:#b3ccc6;margin:10px 0 0}
+.documents-card p.upload-error{color:#ffd0bd}
+.file-row strong{overflow-wrap:anywhere}
+@media(max-width:900px){.documents-card{flex:0 0 100%;margin-top:0}.library-card{max-width:50%}.file-row{min-width:0}.file-row>div{min-width:0}}
+
+@media(min-width:901px){.sidebar{height:100dvh;min-height:0;overflow-y:auto}.sidebar-note{padding-top:28px}}

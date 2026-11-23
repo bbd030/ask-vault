@@ -22,3 +22,6 @@ data/vector_index.tmp
 
 # 本机前端工具运行记录
 .sites-runtime/
+
+# 用户上传的本地资料
+data/uploads/

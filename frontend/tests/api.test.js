@@ -42,3 +42,12 @@ test('health checks require an actual AskVault response', async () => {
   assert.equal(await checkHealth({ fetchImpl: async url => { assert.equal(url, '/api/health'); return { ok: true, json: async () => ({ status: 'ok', service: 'AskVault' }) } } }), true)
   assert.equal(await checkHealth({ fetchImpl: async () => ({ ok: false, json: async () => ({ status: 'ok' }) }) }), false)
 })
+
+test('question carries the selected document ID', async () => {
+  let body
+  await requestQuestion('内容？', 2, { documentId: 'a'.repeat(32), fetchImpl: async (_, options) => {
+    body = JSON.parse(options.body)
+    return { ok: true, json: async () => success }
+  } })
+  assert.equal(body.document_id, 'a'.repeat(32))
+})
