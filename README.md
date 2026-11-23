@@ -16,7 +16,8 @@ TXT 文档 → 重叠切分 → Embedding → 本地向量缓存 → Milvus 入�
 - [x] JSON 缓存：文档、模型或切分配置改变时重新生成向量
 - [x] Milvus 持久化存储、版本隔离与数据库检索
 - [ ] 按段落、句子切分及更多文档格式
-- [ ] Flask 后端接口与 Vue 页面
+- [x] Flask 健康检查和问答接口
+- [ ] 文件上传接口与 Vue 页面
 
 ## 本地启动
 
@@ -68,13 +69,46 @@ docker compose up -d --wait --wait-timeout 180
 
 | 文件 | 学习内容 |
 | --- | --- |
-| `main.py` | 读取文档、切分与整个问答流程 |
+| `main.py` | 命令行提问入口 |
+| `knowledge_base.py` | 命令行与接口共用的读取、切分、检索和问答流程 |
+| `server.py` | Flask 健康检查、问答接口和请求校验 |
 | `embedding.py` | 将文字转换为向量 |
 | `retriever.py` | 手写余弦相似度与本地检索 |
 | `vector_store.py` | JSON 缓存读取、校验和保存 |
 | `milvus_store.py` | 集合、入库、文档版本过滤和向量检索 |
 | `generator.py` | 组织参考资料、调用回答模型和处理错误 |
 | `docker-compose.yml` | 本机 Milvus 服务和数据卷 |
+
+## Flask 本机接口
+
+启动 Milvus 后，可以使用同一套问答逻辑启动 HTTP 接口：
+
+```powershell
+.\.venv\Scripts\python.exe server.py
+```
+
+服务只监听本机 `127.0.0.1:5000`，关闭调试和自动重载，当前顺序处理请求。端口可通过 `.env` 中的 `FLASK_PORT` 调整。
+
+| 请求 | 用途 |
+| --- | --- |
+| `GET /api/health` | 检查 HTTP 服务存活，不触发模型或数据库调用 |
+| `POST /api/query` | 传入问题，返回回答、来源编号和检索片段 |
+
+问答请求示例：
+
+```json
+{"question": "报销需要哪些材料？", "top_k": 2}
+```
+
+请求头使用 `Content-Type: application/json`。成功返回 `success`、`question`、`answer`、`sources`、`matches` 和 `backend`；不返回密钥或完整向量。
+
+问题限 2000 个字符，`top_k` 为 1 到 10 的整数。输入错误返回 400，错误内容类型返回 415，数据库或模型调用失败返回 503。该阶段处理固定的 `data/sample.txt`，尚未提供上传或网页界面。
+
+普通接口与共用逻辑检查不调用模型，也不要求 Milvus 已启动：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
 ## 数据库集成检查
 
