@@ -6,7 +6,7 @@
 
 TXT / PDF / DOCX 文档 → 重叠切分 → Embedding → 本地向量缓存 → Milvus 入库与检索 → 根据资料生成回答 → 显示参考来源。
 
-## 已实现与后续目标
+## 已实现功能
 
 - [x] 读取 UTF-8 TXT 文档并记录来源
 - [x] 段落、句子边界优先切分与片段重叠
@@ -26,7 +26,7 @@ TXT / PDF / DOCX 文档 → 重叠切分 → Embedding → 本地向量缓存 �
 
 ## 本地启动
 
-需要 Python 3.13 和已运行的 Docker Desktop（WSL 2 后端、Linux 容器）。
+需要 Python 3.13、Node.js 22.12+（或 24 LTS）与 Docker Desktop（WSL 2 后端、Linux 容器）。以下命令以 PowerShell 为例。
 
 ```powershell
 python -m venv .venv
@@ -39,14 +39,22 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-启动本项目的 Milvus，再运行问答程序：
+在项目根目录启动 Milvus 和 Flask：
 
 ```powershell
 docker compose up -d --wait --wait-timeout 180
-.\.venv\Scripts\python.exe main.py
+.\.venv\Scripts\python.exe server.py
 ```
 
-输入问题，例如：`报销需要哪些材料？`
+保持 Flask 终端运行，在另一终端进入项目的 frontend 目录：
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+打开 http://127.0.0.1:5173。可以先针对默认报销样例提问，再上传文档或切换到「全部上传资料」。命令行版可在项目根目录运行 `.\.venv\Scripts\python.exe main.py`。停止服务时在各终端按 Ctrl+C，需要暂停 Milvus 时运行 `docker compose stop`。
 
 ## 关键配置
 
@@ -65,7 +73,7 @@ docker compose up -d --wait --wait-timeout 180
 - `data/vector_index.json` 缓存文档向量，避免每次运行重新请求文档 Embedding；问题向量化与回答生成仍会请求模型服务。
 - Milvus 数据保存在本项目独立的 Docker 命名卷中。服务端和 Python SDK 均固定使用 2.6.9。
 - Milvus 使用 COSINE 度量。不同模型或向量维度进入不同集合，当前文档版本通过索引标识过滤，重复运行不会重复追加同一批片段。
-- 默认处理 `data/sample.txt`，也支持通过上传编号查询一份 TXT、PDF 或 DOCX。历史文档版本保留在数据库中，检索只选择当前版本；后续再增加文档管理和历史版本清理。
+- 默认处理 `data/sample.txt`，也支持通过上传编号查询一份 TXT、PDF 或 DOCX。历史文档版本保留在数据库中，检索只选择当前版本；可在网页替换或移除资料。
 - 相似度阈值 `0.5` 是学习用初始值，需要通过更多问题评估，不能当作答案正确率。
 
 暂停数据库可以执行 `docker compose stop`，再次使用时执行启动命令。
@@ -222,9 +230,16 @@ POST /api/query 可增加 document_id（上传返回的 32 位编号），例如
 .\.venv\Scripts\python.exe -B scripts/check_live_rag.py --run
 ```
 
-脚本通过 Flask 测试客户端走上传、列表和问答接口，真实调用向量模型、回答模型和 Milvus；不经过 Vue 或 HTTP 网络服务。测试使用临时目录与独立 ask_vault_live_test 集合前缀，不读取业务资料。仅发送两句自造文本，检查两份同名文档隔离、回答与引用、重复提问复用缓存，以及重复入库不增加片段。结束时删除本次文档版本对应的测试向量，临时文件和缓存自动清理，保留测试集合本身。
+脚本通过 Flask 测试客户端验证上传、列表、下载、问答、替换与移除。它用临时 TXT、单页文字 PDF 和带表格的 DOCX 调用真实 DashScope 与 Milvus，检查单文档和联合检索、引用、缓存复用及新旧版本隔离。测试使用独立的 ask_vault_live_test 集合前缀，结束时清理本次写入的向量和临时文件。
 
-2026-11-24 首次实测通过：两份资料均回答各自的口令并引用原始文件名，第三次查询第一份资料时新增文档向量化调用为 0，数据库片段无重复。本检查只验证简单事实场景的完整流程，不代表已经完成问答质量评估。
+整体回归可在 Milvus 启动后用以下命令执行：
+
+```powershell
+$env:ASKVAULT_MILVUS_TEST = "1"
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+npm --prefix frontend test
+npm --prefix frontend run build
+```
 
 ## 当前切分方式
 
@@ -234,7 +249,7 @@ POST /api/query 可增加 document_id（上传返回的 32 位编号），例如
 
 索引元数据增加 splitter=boundary_v1，并记录片段大小与重叠配置，旧缓存不再匹配；下一次提问会自动重建文档向量。Milvus 继续通过索引标识隔离新旧版本，历史向量暂时保留。
 
-按当前学习节奏，构造阶段只做必要语法或构建检查；切分边界、缓存重建以及各格式问答在功能组装后统一验证。
+按当前学习节奏，构造阶段只做必要语法或构建检查；最终检查涵盖切分、各格式问答、缓存重建和资料管理。
 
 
 ## 联合检索与下载
@@ -248,4 +263,4 @@ POST /api/query 可传 document_ids 数组指定多份上传资料，与 documen
 
 选中一份上传资料，再选择一个相同格式的文件，点击「替换当前资料」。PUT /api/documents/<document_id> 使用 multipart 的 file 字段，校验成功后一次替换原文件，保留原名称和编号。内容变化会使旧缓存失效，下次提问会重新向量化。默认 sample.txt 作为示例保留。
 
-「移除资料」需在页面确认。DELETE /api/documents/<document_id> 将名称记录改成 \`<id>.deleted.json\`，资料立即退出列表、下载和检索范围。原文件、缓存和历史 Milvus 向量保留。需要恢复时，可停止 Flask 后在上传目录把该名称记录改回 \`<id>.json\`。
+「移除资料」需在页面确认。DELETE /api/documents/<document_id> 将名称记录改成 `<id>.deleted.json`，资料立即退出列表、下载和检索范围。原文件、缓存和历史 Milvus 向量保留。需要恢复时，可停止 Flask 后在上传目录把该名称记录改回 `<id>.json`。
