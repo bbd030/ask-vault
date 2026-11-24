@@ -7,6 +7,7 @@ from uuid import uuid4
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
+from document_loader import document_suffix, extract_document_text
 from knowledge_base import KnowledgeBase
 
 
@@ -31,24 +32,32 @@ def create_app(knowledge_base=None) -> Flask:
             return jsonify({"success": False, "error": "请使用 multipart/form-data 上传文件"}), 415
         files = list(request.files.items(multi=True))
         if len(files) != 1 or files[0][0] != "file" or not files[0][1].filename:
-            return jsonify({"success": False, "error": "请通过 file 字段上传一个 TXT 文件"}), 400
+            return jsonify({"success": False, "error": "请通过 file 字段上传一个 TXT、PDF 或 Word (.docx) 文件"}), 400
         uploaded = files[0][1]
         # 原始名称仅用于显示，绝不直接参与保存路径。
         filename = uploaded.filename.replace("\\", "/").rsplit("/", 1)[-1]
-        if not filename.lower().endswith(".txt"):
-            return jsonify({"success": False, "error": "目前只支持 .txt 文件"}), 400
+        try:
+            suffix = document_suffix(filename)
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
         content = uploaded.stream.read(app.config["MAX_UPLOAD_BYTES"] + 1)
         if len(content) > app.config["MAX_UPLOAD_BYTES"]:
-            return jsonify({"success": False, "error": "TXT 文件不能超过 1 MiB"}), 413
-        try:
-            text = content.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            return jsonify({"success": False, "error": "TXT 文件必须使用 UTF-8 编码"}), 400
-        if not text.strip() or "\0" in text:
-            return jsonify({"success": False, "error": "TXT 文件须包含非空文本，且不能含空字符"}), 400
+            return jsonify({"success": False, "error": "文件不能超过 1 MiB"}), 413
+        if suffix != ".txt":
+            try:
+                extract_document_text(content, suffix)
+            except ValueError as exc:
+                return jsonify({"success": False, "error": str(exc)}), 400
+        else:
+            try:
+                text = content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                return jsonify({"success": False, "error": "TXT 文件必须使用 UTF-8 编码"}), 400
+            if not text.strip() or "\0" in text:
+                return jsonify({"success": False, "error": "TXT 文件须包含非空文本，且不能含空字符"}), 400
 
         document_id = uuid4().hex
-        stored_name = f"{document_id}.txt"
+        stored_name = f"{document_id}{suffix}"
         destination = Path(app.config["UPLOAD_FOLDER"]) / stored_name
         created = False
         try:
@@ -90,16 +99,16 @@ def create_app(knowledge_base=None) -> Flask:
                 document_id = info_path.stem
                 if not re.fullmatch(r"[0-9a-f]{32}", document_id):
                     continue  # 跳过 .index.json 等非文档名称文件。
-                file_path = folder / f"{document_id}.txt"
                 try:
                     info = json.loads(info_path.read_text(encoding="utf-8"))
                     filename = info.get("filename") if isinstance(info, dict) else None
                     if not isinstance(filename, str) or not filename.strip():
                         continue
+                    file_path = folder / f"{document_id}{document_suffix(filename)}"
                     stat = file_path.stat()
                     if not file_path.is_file():
                         continue
-                except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError):
+                except (FileNotFoundError, ValueError):
                     continue  # 不完整或损坏的文档不影响其他资料显示。
                 documents.append({
                     "id": document_id, "filename": filename,

@@ -24,7 +24,7 @@ test('upload sends the original file via FormData with browser-managed headers',
 test('invalid file selection is rejected before any network request', async () => {
   let calls = 0
   const fetchImpl = async () => { calls++; throw new Error('unexpected fetch') }
-  for (const file of [null, {}, new File(['hello'], 'a.pdf'), new File([], 'a.txt'), new File(['x'.repeat(1024 * 1024 + 1)], 'a.txt')]) {
+  for (const file of [null, {}, new File(['hello'], 'a.csv'), new File([], 'a.txt'), new File(['x'.repeat(1024 * 1024 + 1)], 'a.txt')]) {
     await assert.rejects(uploadDocument(file, { fetchImpl }))
   }
   assert.equal(calls, 0)

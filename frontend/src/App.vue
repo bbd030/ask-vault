@@ -136,7 +136,7 @@ onMounted(() => { refreshHealth(); refreshDocuments() })
       <a class="brand" href="/" aria-label="AskVault 首页"><span class="brand-mark">A</span><span>AskVault<small>让知识成为答案</small></span></a>
       <p class="nav-caption">工作空间</p>
       <div class="nav-item active"><span class="nav-icon">◈</span>知识问答</div>
-      <section class="library-card"><span class="eyebrow">当前资料</span><div class="file-row"><span class="file-icon">TXT</span><div><strong>{{ currentDocument?.filename || 'sample.txt' }}</strong><span>当前问答资料</span></div></div><p>围绕文档提问，查看回答与参考片段。</p></section>
+      <section class="library-card"><span class="eyebrow">当前资料</span><div class="file-row"><span class="file-icon">{{ currentDocument?.filename.split('.').at(-1).toUpperCase() || 'TXT' }}</span><div><strong>{{ currentDocument?.filename || 'sample.txt' }}</strong><span>当前问答资料</span></div></div><p>围绕文档提问，查看回答与参考片段。</p></section>
       <section class="documents-card" aria-labelledby="documents-heading">
         <div class="documents-heading"><h2 id="documents-heading">文档列表</h2><button type="button" @click="refreshDocuments" :disabled="documentsLoading || uploading || busy">{{ documentsLoading ? '加载中…' : '刷新列表' }}</button></div>
         <label for="current-document">选择问答资料</label>
@@ -150,11 +150,11 @@ onMounted(() => { refreshHealth(); refreshDocuments() })
         <p v-else>已上传 {{ documents.length }} 份资料。切换会清空当前对话，每次只查询所选文档。</p>
       </section>
       <section class="upload-card" aria-labelledby="upload-heading">
-        <h2 id="upload-heading">上传 TXT</h2>
-        <p class="upload-help" id="upload-help">UTF-8 编码 · 最大 1 MiB。上传后切换为当前问答资料。</p>
+        <h2 id="upload-heading">上传资料</h2>
+        <p class="upload-help" id="upload-help">支持 UTF-8 TXT、有文字层的 PDF 和 Word (.docx)，最大 1 MiB。</p>
         <form @submit.prevent="submitUpload" :aria-busy="uploading">
-          <label for="txt-file">选择文件</label>
-          <input id="txt-file" ref="fileInput" type="file" accept=".txt,text/plain" aria-describedby="upload-help" :disabled="uploading || busy || documentsLoading" @change="selectFile">
+          <label for="document-file">选择文件</label>
+          <input id="document-file" ref="fileInput" type="file" accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" aria-describedby="upload-help" :disabled="uploading || busy || documentsLoading" @change="selectFile">
           <button class="upload-button" type="submit" :disabled="uploading || busy || documentsLoading || !selectedFile">{{ uploading ? '上传中…' : uploadError ? '重试上传' : '上传文件' }}</button>
         </form>
         <p v-if="uploading" class="upload-feedback" role="status">正在上传，请稍候…</p>

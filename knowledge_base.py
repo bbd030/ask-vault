@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from document_loader import document_suffix, extract_document_text
 from embedding import embed_text
 from generator import answer_question
 from milvus_store import MilvusVectorStore
@@ -17,25 +18,37 @@ def load_text(file_path: Path) -> str:
 
 def split_text(
     text: str,
-    chunk_size: int = 30,
-    overlap: int = 5,
+    chunk_size: int = 500,
+    overlap: int = 50,
 ) -> list[str]:
+    """优先在窗口后半段的段落或句子边界切分，保留尾部字符重叠。"""
     if chunk_size <= 0:
         raise ValueError("片段大小必须大于 0")
-
     if not 0 <= overlap < chunk_size:
         raise ValueError("重叠长度必须大于等于 0，并且小于片段大小")
 
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # 参考课程的分隔符顺序：先段落、换行，再句子、短句和空格。
+    separators = ("\n\n", "\n", "。", "！", "？", "；", "，", ". ", "! ", "? ", " ")
     chunks = []
-    step = chunk_size - overlap
-
-    for start in range(0, len(text), step):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-
-        if end >= len(text):
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        if end < len(text):
+            # 保证切点超过重叠区，让下一次 start 严格前进。
+            # 优先在后半段寻找边界，避免短段落造成过小片段。
+            search_start = start + max(chunk_size // 2, overlap + 1)
+            for separator in separators:
+                position = text.rfind(separator, search_start, end)
+                if position != -1:
+                    end = position + len(separator)
+                    break
+        chunk = text[start:end]
+        if chunk.strip():
+            chunks.append(chunk)
+        if end == len(text):
             break
-
+        start = end - overlap
     return chunks
 
 
@@ -54,22 +67,26 @@ class KnowledgeBase:
             if not isinstance(document_id, str) or not re.fullmatch(r"[0-9a-f]{32}", document_id):
                 raise ValueError("文档编号格式不正确")
             folder = self.project_dir / "data" / "uploads"
-            file_path = folder / f"{document_id}.txt"
             info = json.loads((folder / f"{document_id}.json").read_text(encoding="utf-8"))
             source = info["filename"]
+            file_path = folder / f"{document_id}{document_suffix(source)}"
             index_path = folder / f"{document_id}.index.json"
-        text = load_text(file_path)
+        if file_path.suffix != ".txt":
+            text = extract_document_text(file_path.read_bytes(), file_path.suffix)
+        else:
+            text = load_text(file_path)
         if not text.strip():
             raise RuntimeError("知识库文档为空")
         model = os.getenv("EMBEDDING_MODEL", "").strip()
         if not model:
             raise RuntimeError("请在 .env 中配置 EMBEDDING_MODEL")
-        chunk_size, overlap = 30, 5
+        chunk_size, overlap = 500, 50
         chunks = split_text(text, chunk_size=chunk_size, overlap=overlap)
         metadata = {
             "source": source,
             "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "embedding_model": model,
+            "splitter": "boundary_v1",
             "chunk_size": chunk_size,
             "overlap": overlap,
             "chunk_count": len(chunks),

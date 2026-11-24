@@ -21,10 +21,10 @@ export async function checkHealth({ fetchImpl = fetch } = {}) {
 
 // FormData 会让浏览器自动生成包含 boundary 的 Content-Type。
 export async function uploadDocument(file, { fetchImpl = fetch, signal } = {}) {
-  if (!(file instanceof Blob) || typeof file.name !== 'string') throw new Error('请先选择一个 TXT 文件。')
-  if (!file.name.toLowerCase().endsWith('.txt')) throw new Error('目前只支持 .txt 文件。')
+  if (!(file instanceof Blob) || typeof file.name !== 'string') throw new Error('请先选择一个 TXT、PDF 或 Word (.docx) 文件。')
+  if (!/\.(txt|pdf|docx)$/i.test(file.name)) throw new Error('目前只支持 .txt、.pdf 和 .docx 文件。')
   if (file.size === 0) throw new Error('不能上传空文件。')
-  if (file.size > 1024 * 1024) throw new Error('TXT 文件不能超过 1 MiB。')
+  if (file.size > 1024 * 1024) throw new Error('文件不能超过 1 MiB。')
   const form = new FormData()
   form.append('file', file)
   const response = await fetchImpl('/api/upload', { method: 'POST', body: form, signal })
