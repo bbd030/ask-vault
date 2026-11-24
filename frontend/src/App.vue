@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { checkHealth, requestQuestion, uploadDocument, fetchDocuments } from './api.js'
+import { checkHealth, requestQuestion, uploadDocument, fetchDocuments, removeDocument } from './api.js'
 
 const documents = ref([])
 const documentsLoading = ref(false)
@@ -35,6 +35,7 @@ function switchDocument(event) {
   const id = event.target.value
   if (id === (searchAll.value ? 'all' : currentDocument.value?.id || '')) return
   searchAll.value = id === 'all'
+  documentActionError.value = ''
   currentDocument.value = documents.value.find(document => document.id === id) || null
   uploadedDocument.value = null
   newConversation()
@@ -44,13 +45,14 @@ const fileInput = ref(null)
 const uploading = ref(false)
 const uploadError = ref('')
 const uploadedDocument = ref(null)
+const documentActionError = ref("")
 
 function selectFile(event) {
   selectedFile.value = event.target.files?.[0] || null
   uploadError.value = ''
   uploadedDocument.value = null
 }
-async function submitUpload() {
+async function submitUpload(replaceId) {
   if (uploading.value || busy.value || documentsLoading.value || !selectedFile.value) return
   uploading.value = true
   uploadError.value = ''
@@ -58,7 +60,7 @@ async function submitUpload() {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 30000)
   try {
-    uploadedDocument.value = await uploadDocument(selectedFile.value, { signal: controller.signal })
+    uploadedDocument.value = await uploadDocument(selectedFile.value, { signal: controller.signal, replaceId })
     documents.value = [uploadedDocument.value, ...documents.value.filter(document => document.id !== uploadedDocument.value.id)]
     searchAll.value = false
     currentDocument.value = uploadedDocument.value
@@ -69,6 +71,25 @@ async function submitUpload() {
     uploadError.value = error.name === 'AbortError' ? '上传等待超时，文件可能已保存，请稍后确认。'
       : error instanceof TypeError ? '暂时无法连接上传服务，请确认后端已启动。' : error.message
   } finally { clearTimeout(timer); uploading.value = false }
+}
+
+async function deleteCurrentDocument() {
+  const target = currentDocument.value
+  if (!target || busy.value || uploading.value || documentsLoading.value) return
+  if (!window.confirm('从知识库移除「' + target.filename + '」？')) return
+  uploading.value = true
+  documentActionError.value = ''
+  try {
+    await removeDocument(target.id, { signal: AbortSignal.timeout(10000) })
+    documents.value = documents.value.filter(document => document.id !== target.id)
+    currentDocument.value = null
+    uploadedDocument.value = null
+    newConversation()
+  } catch (error) {
+    documentActionError.value = error instanceof SyntaxError ? '移除资料失败，请稍后重试。' : error.message
+  } finally {
+    uploading.value = false
+  }
 }
 
 const question = ref('')
@@ -153,6 +174,8 @@ onMounted(() => { refreshHealth(); refreshDocuments() })
           <option v-for="document in documents" :key="document.id" :value="document.id">{{ document.filename }} · {{ document.id.slice(0, 6) }} · {{ (document.size_bytes / 1024).toFixed(1) }} KiB</option>
         </select>
         <a v-if="currentDocument" class="document-download" :href="`/api/documents/${currentDocument.id}/download`">下载原文件</a>
+        <button v-if="currentDocument" class="document-remove" type="button" @click="deleteCurrentDocument" :disabled="uploading || busy || documentsLoading">移除资料</button>
+        <p v-if="documentActionError" class="upload-error" role="alert">{{ documentActionError }}</p>
         <p v-if="documentsLoading" role="status">正在读取已上传的资料…</p>
         <p v-else-if="documentsError" role="alert" class="upload-error">{{ documentsError }}</p>
         <p v-else-if="!documents.length">还没有上传资料，可先使用默认文档。</p>
@@ -161,10 +184,11 @@ onMounted(() => { refreshHealth(); refreshDocuments() })
       <section class="upload-card" aria-labelledby="upload-heading">
         <h2 id="upload-heading">上传资料</h2>
         <p class="upload-help" id="upload-help">支持 UTF-8 TXT、有文字层的 PDF 和 Word (.docx)，最大 1 MiB。</p>
-        <form @submit.prevent="submitUpload" :aria-busy="uploading">
+        <form @submit.prevent="submitUpload()" :aria-busy="uploading">
           <label for="document-file">选择文件</label>
           <input id="document-file" ref="fileInput" type="file" accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" aria-describedby="upload-help" :disabled="uploading || busy || documentsLoading" @change="selectFile">
           <button class="upload-button" type="submit" :disabled="uploading || busy || documentsLoading || !selectedFile">{{ uploading ? '上传中…' : uploadError ? '重试上传' : '上传文件' }}</button>
+          <button v-if="currentDocument" class="upload-button" type="button" @click="submitUpload(currentDocument.id)" :disabled="uploading || busy || documentsLoading || !selectedFile">替换当前资料</button>
         </form>
         <p v-if="uploading" class="upload-feedback" role="status">正在上传，请稍候…</p>
         <p v-if="uploadError" class="upload-feedback upload-error" role="alert">{{ uploadError }}</p>

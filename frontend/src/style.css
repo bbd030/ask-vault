@@ -37,3 +37,5 @@
 @media(min-width:901px){.sidebar{height:100dvh;min-height:0;overflow-y:auto}.sidebar-note{padding-top:28px}}
 
 .document-download{display:inline-block;margin-top:10px;color:#b1edd9;font-size:13px;text-decoration:underline;text-underline-offset:3px}
+
+.document-remove{margin:10px 0 0 8px;border:1px solid #75594f;border-radius:5px;background:#412f2a;color:#ffd0bd;font-size:12px;padding:4px 6px}

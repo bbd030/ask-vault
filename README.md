@@ -22,7 +22,7 @@ TXT / PDF / DOCX 文档 → 重叠切分 → Embedding → 本地向量缓存 �
 - [x] TXT 上传接口与网页上传（支持指定上传文档问答）
 - [x] 已上传文档列表与单文档切换
 - [x] 多文档联合检索与原文件下载
-- [ ] 更新和删除资料
+- [x] 替换和移除已上传资料
 
 ## 本地启动
 
@@ -242,3 +242,10 @@ POST /api/query 可增加 document_id（上传返回的 32 位编号），例如
 选择「全部上传资料」可联合检索本次列表中的上传文档。后端只向量化一次问题，分别检索各文档的当前版本，再按相似度合并取全局前 top_k，最后生成一次回答。同名文件的引用通过文档编号区分。
 
 POST /api/query 可传 document_ids 数组指定多份上传资料，与 document_id 二选一。默认 sample.txt 仍可单独查询。选中一份上传资料后可点击「下载原文件」。GET /api/documents/<document_id>/download 按原始文件名返回上传时保存的内容。
+
+
+## 替换和移除资料
+
+选中一份上传资料，再选择一个相同格式的文件，点击「替换当前资料」。PUT /api/documents/<document_id> 使用 multipart 的 file 字段，校验成功后一次替换原文件，保留原名称和编号。内容变化会使旧缓存失效，下次提问会重新向量化。默认 sample.txt 作为示例保留。
+
+「移除资料」需在页面确认。DELETE /api/documents/<document_id> 将名称记录改成 \`<id>.deleted.json\`，资料立即退出列表、下载和检索范围。原文件、缓存和历史 Milvus 向量保留。需要恢复时，可停止 Flask 后在上传目录把该名称记录改回 \`<id>.json\`。

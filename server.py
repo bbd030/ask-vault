@@ -23,39 +23,47 @@ def create_app(knowledge_base=None) -> Flask:
     @app.before_request
     def limit_request_size():
         # 问答等接口仍保持原来的 64 KiB 请求上限。
-        if request.endpoint != "upload":
+        if request.endpoint not in {"upload", "replace_document"}:
             request.max_content_length = 64 * 1024
 
-    @app.post("/api/upload")
-    def upload():
+    def read_uploaded_file():
         if request.mimetype != "multipart/form-data":
-            return jsonify({"success": False, "error": "请使用 multipart/form-data 上传文件"}), 415
+            return None, ("请使用 multipart/form-data 上传文件", 415)
         files = list(request.files.items(multi=True))
         if len(files) != 1 or files[0][0] != "file" or not files[0][1].filename:
-            return jsonify({"success": False, "error": "请通过 file 字段上传一个 TXT、PDF 或 Word (.docx) 文件"}), 400
+            return None, ("请通过 file 字段上传一个 TXT、PDF 或 Word (.docx) 文件", 400)
         uploaded = files[0][1]
         # 原始名称仅用于显示，绝不直接参与保存路径。
         filename = uploaded.filename.replace("\\", "/").rsplit("/", 1)[-1]
         try:
             suffix = document_suffix(filename)
         except ValueError as exc:
-            return jsonify({"success": False, "error": str(exc)}), 400
+            return None, (str(exc), 400)
         content = uploaded.stream.read(app.config["MAX_UPLOAD_BYTES"] + 1)
         if len(content) > app.config["MAX_UPLOAD_BYTES"]:
-            return jsonify({"success": False, "error": "文件不能超过 1 MiB"}), 413
+            return None, ("文件不能超过 1 MiB", 413)
         if suffix != ".txt":
             try:
                 extract_document_text(content, suffix)
             except ValueError as exc:
-                return jsonify({"success": False, "error": str(exc)}), 400
+                return None, (str(exc), 400)
         else:
             try:
                 text = content.decode("utf-8-sig")
             except UnicodeDecodeError:
-                return jsonify({"success": False, "error": "TXT 文件必须使用 UTF-8 编码"}), 400
+                return None, ("TXT 文件必须使用 UTF-8 编码", 400)
             if not text.strip() or "\0" in text:
-                return jsonify({"success": False, "error": "TXT 文件须包含非空文本，且不能含空字符"}), 400
+                return None, ("TXT 文件须包含非空文本，且不能含空字符", 400)
 
+        return (filename, suffix, content), None
+
+    @app.post("/api/upload")
+    def upload():
+        upload_file, error = read_uploaded_file()
+        if error:
+            message, status = error
+            return jsonify({"success": False, "error": message}), status
+        filename, suffix, content = upload_file
         document_id = uuid4().hex
         stored_name = f"{document_id}{suffix}"
         destination = Path(app.config["UPLOAD_FOLDER"]) / stored_name
@@ -144,6 +152,40 @@ def create_app(knowledge_base=None) -> Flask:
         _, file_path, filename = uploaded_document(document_id)
         return send_file(file_path.resolve(), as_attachment=True, download_name=filename,
                          mimetype="application/octet-stream", max_age=0)
+
+    @app.put("/api/documents/<document_id>")
+    def replace_document(document_id):
+        _, file_path, filename = uploaded_document(document_id)
+        upload_file, error = read_uploaded_file()
+        if error:
+            message, status = error
+            return jsonify({"success": False, "error": message}), status
+        _, suffix, content = upload_file
+        if suffix != file_path.suffix:
+            return jsonify({"success": False, "error": "请使用与原资料相同的文件格式"}), 400
+        temporary = file_path.with_name(f".{document_id}.{uuid4().hex}.tmp")
+        try:
+            temporary.write_bytes(content)
+            temporary.replace(file_path)
+        except OSError as exc:
+            app.logger.error("更新资料失败，异常类型：%s", type(exc).__name__)
+            return jsonify({"success": False, "error": "更新资料失败，请稍后重试"}), 503
+        finally:
+            temporary.unlink(missing_ok=True)
+        return jsonify({"success": True, "document": {
+            "id": document_id, "filename": filename, "stored_name": file_path.name,
+            "size_bytes": len(content), "indexed": False,
+        }})
+
+    @app.delete("/api/documents/<document_id>")
+    def delete_document(document_id):
+        info_path, _, _ = uploaded_document(document_id)
+        try:
+            info_path.rename(info_path.with_suffix(".deleted.json"))
+        except OSError as exc:
+            app.logger.error("移除资料失败，异常类型：%s", type(exc).__name__)
+            return jsonify({"success": False, "error": "移除资料失败，请稍后重试"}), 503
+        return jsonify({"success": True})
 
     @app.get("/api/health")
     def health():
