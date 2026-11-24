@@ -1,247 +1,39 @@
-import json
-import re
 import os
+import sys
 from pathlib import Path
-from uuid import uuid4
+from dotenv import load_dotenv
 
-from flask import Flask, jsonify, request, send_file, abort
-from werkzeug.exceptions import HTTPException
+# Load environment variables
+env_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-from document_loader import document_suffix, extract_document_text
-from knowledge_base import KnowledgeBase
+from api_integration import register_vector_routes
 
+# 添加当前目录到 python path 以便导入模块
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-def create_app(knowledge_base=None) -> Flask:
+from flask import Flask
+from flask_cors import CORS
+
+def create_app():
     app = Flask(__name__)
-    app.json.ensure_ascii = False
-    # 上传请求为 multipart 边界和请求头额外预留 64 KiB。
-    app.config["MAX_UPLOAD_BYTES"] = 1024 * 1024
-    app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 + 64 * 1024
-    app.config["UPLOAD_FOLDER"] = Path(__file__).resolve().parent / "data" / "uploads"
-    service = knowledge_base if knowledge_base is not None else KnowledgeBase()
-
-    @app.before_request
-    def limit_request_size():
-        # 问答等接口仍保持原来的 64 KiB 请求上限。
-        if request.endpoint not in {"upload", "replace_document"}:
-            request.max_content_length = 64 * 1024
-
-    def read_uploaded_file():
-        if request.mimetype != "multipart/form-data":
-            return None, ("请使用 multipart/form-data 上传文件", 415)
-        files = list(request.files.items(multi=True))
-        if len(files) != 1 or files[0][0] != "file" or not files[0][1].filename:
-            return None, ("请通过 file 字段上传一个 TXT、PDF 或 Word (.docx) 文件", 400)
-        uploaded = files[0][1]
-        # 原始名称仅用于显示，绝不直接参与保存路径。
-        filename = uploaded.filename.replace("\\", "/").rsplit("/", 1)[-1]
-        try:
-            suffix = document_suffix(filename)
-        except ValueError as exc:
-            return None, (str(exc), 400)
-        content = uploaded.stream.read(app.config["MAX_UPLOAD_BYTES"] + 1)
-        if len(content) > app.config["MAX_UPLOAD_BYTES"]:
-            return None, ("文件不能超过 1 MiB", 413)
-        if suffix != ".txt":
-            try:
-                extract_document_text(content, suffix)
-            except ValueError as exc:
-                return None, (str(exc), 400)
-        else:
-            try:
-                text = content.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                return None, ("TXT 文件必须使用 UTF-8 编码", 400)
-            if not text.strip() or "\0" in text:
-                return None, ("TXT 文件须包含非空文本，且不能含空字符", 400)
-
-        return (filename, suffix, content), None
-
-    @app.post("/api/upload")
-    def upload():
-        upload_file, error = read_uploaded_file()
-        if error:
-            message, status = error
-            return jsonify({"success": False, "error": message}), status
-        filename, suffix, content = upload_file
-        document_id = uuid4().hex
-        stored_name = f"{document_id}{suffix}"
-        destination = Path(app.config["UPLOAD_FOLDER"]) / stored_name
-        created = False
-        try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with destination.open("xb") as output:
-                created = True
-                output.write(content)
-            # 保存原始名称，后续问答来源不使用随机磁盘文件名。
-            destination.with_suffix(".json").write_text(
-                json.dumps({"filename": filename}, ensure_ascii=False), encoding="utf-8",
-            )
-        except OSError as exc:
-            if created:
-                destination.unlink(missing_ok=True)
-                destination.with_suffix(".json").unlink(missing_ok=True)
-            app.logger.error("保存上传文件失败，异常类型：%s", type(exc).__name__)
-            return jsonify({"success": False, "error": "文件保存失败，请稍后重试"}), 503
-        return jsonify({
-            "success": True,
-            "document": {"id": document_id, "filename": filename,
-                         "stored_name": stored_name, "size_bytes": len(content),
-                         "indexed": False},
-            "message": "文件已保存，可在提问时指定文档编号；首次提问时建立索引",
-        }), 201
-
-    @app.get("/api/documents")
-    def list_documents():
-        # 列表只读取原文件和名称信息，不调用模型、不连接 Milvus。
-        folder = Path(app.config["UPLOAD_FOLDER"])
-        documents = []
-        try:
-            try:
-                entries = list(folder.iterdir())
-            except FileNotFoundError:
-                entries = []
-            for info_path in entries:
-                if info_path.suffix != ".json":
-                    continue
-                document_id = info_path.stem
-                if not re.fullmatch(r"[0-9a-f]{32}", document_id):
-                    continue  # 跳过 .index.json 等非文档名称文件。
-                try:
-                    info = json.loads(info_path.read_text(encoding="utf-8"))
-                    filename = info.get("filename") if isinstance(info, dict) else None
-                    if not isinstance(filename, str) or not filename.strip():
-                        continue
-                    file_path = folder / f"{document_id}{document_suffix(filename)}"
-                    stat = file_path.stat()
-                    if not file_path.is_file():
-                        continue
-                except (FileNotFoundError, ValueError):
-                    continue  # 不完整或损坏的文档不影响其他资料显示。
-                documents.append({
-                    "id": document_id, "filename": filename,
-                    "size_bytes": stat.st_size, "modified_ns": stat.st_mtime_ns,
-                })
-        except OSError as exc:
-            app.logger.error("读取文档列表失败，异常类型：%s", type(exc).__name__)
-            return jsonify({"success": False, "error": "暂时无法读取文档列表，请稍后重试"}), 503
-        documents.sort(key=lambda item: (item["modified_ns"], item["id"]), reverse=True)
-        for document in documents:
-            document.pop("modified_ns")
-        return jsonify({"success": True, "documents": documents})
-
-    def uploaded_document(document_id):
-        if not re.fullmatch(r"[0-9a-f]{32}", document_id):
-            abort(404)
-        folder = Path(app.config["UPLOAD_FOLDER"])
-        info_path = folder / f"{document_id}.json"
-        try:
-            info = json.loads(info_path.read_text(encoding="utf-8"))
-            filename = info.get("filename") if isinstance(info, dict) else None
-            if not isinstance(filename, str):
-                abort(404)
-            file_path = folder / f"{document_id}{document_suffix(filename)}"
-        except (FileNotFoundError, ValueError):
-            abort(404)
-        if not file_path.is_file():
-            abort(404)
-        return info_path, file_path, filename
-
-    @app.get("/api/documents/<document_id>/download")
-    def download_document(document_id):
-        _, file_path, filename = uploaded_document(document_id)
-        return send_file(file_path.resolve(), as_attachment=True, download_name=filename,
-                         mimetype="application/octet-stream", max_age=0)
-
-    @app.put("/api/documents/<document_id>")
-    def replace_document(document_id):
-        _, file_path, filename = uploaded_document(document_id)
-        upload_file, error = read_uploaded_file()
-        if error:
-            message, status = error
-            return jsonify({"success": False, "error": message}), status
-        _, suffix, content = upload_file
-        if suffix != file_path.suffix:
-            return jsonify({"success": False, "error": "请使用与原资料相同的文件格式"}), 400
-        temporary = file_path.with_name(f".{document_id}.{uuid4().hex}.tmp")
-        try:
-            temporary.write_bytes(content)
-            temporary.replace(file_path)
-        except OSError as exc:
-            app.logger.error("更新资料失败，异常类型：%s", type(exc).__name__)
-            return jsonify({"success": False, "error": "更新资料失败，请稍后重试"}), 503
-        finally:
-            temporary.unlink(missing_ok=True)
-        return jsonify({"success": True, "document": {
-            "id": document_id, "filename": filename, "stored_name": file_path.name,
-            "size_bytes": len(content), "indexed": False,
-        }})
-
-    @app.delete("/api/documents/<document_id>")
-    def delete_document(document_id):
-        info_path, _, _ = uploaded_document(document_id)
-        try:
-            info_path.rename(info_path.with_suffix(".deleted.json"))
-        except OSError as exc:
-            app.logger.error("移除资料失败，异常类型：%s", type(exc).__name__)
-            return jsonify({"success": False, "error": "移除资料失败，请稍后重试"}), 503
-        return jsonify({"success": True})
-
-    @app.get("/api/health")
-    def health():
-        # 这里只检查 HTTP 服务存活，不触发模型调用或数据库连接。
-        return jsonify({"status": "ok", "service": "AskVault"})
-
-    @app.post("/api/query")
-    def query():
-        if not request.is_json:
-            return jsonify({"success": False, "error": "请使用 application/json 请求体"}), 415
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return jsonify({"success": False, "error": "请求体必须是有效的 JSON 对象"}), 400
-        question = data.get("question")
-        top_k = data.get("top_k", 2)
-        if not isinstance(question, str) or not question.strip():
-            return jsonify({"success": False, "error": "question 必须是非空字符串"}), 400
-        if len(question.strip()) > 2000:
-            return jsonify({"success": False, "error": "问题不能超过 2000 个字符"}), 400
-        if type(top_k) is not int or not 1 <= top_k <= 10:
-            return jsonify({"success": False, "error": "top_k 必须是 1 到 10 之间的整数"}), 400
-        document_id = data.get("document_id")
-        if "document_id" in data and (not isinstance(document_id, str) or not re.fullmatch(r"[0-9a-f]{32}", document_id)):
-            return jsonify({"success": False, "error": "document_id 必须是 32 位小写十六进制编号"}), 400
-        document_ids = data.get("document_ids")
-        if "document_ids" in data:
-            if "document_id" in data or not isinstance(document_ids, list) or not document_ids:
-                return jsonify({"success": False, "error": "请仅指定一份资料或一组资料编号"}), 400
-            if any(not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{32}", item) for item in document_ids):
-                return jsonify({"success": False, "error": "资料编号格式不正确"}), 400
-            if len(document_ids) != len(set(document_ids)):
-                return jsonify({"success": False, "error": "资料编号不能重复"}), 400
-        try:
-            if document_ids is not None:
-                result = service.ask(question.strip(), top_k=top_k, document_ids=document_ids)
-            elif document_id is None:
-                result = service.ask(question.strip(), top_k=top_k)
-            else:
-                result = service.ask(question.strip(), top_k=top_k, document_id=document_id)
-        except FileNotFoundError:
-            return jsonify({"success": False, "error": "问答资料不存在，请重新上传或选择资料"}), 404
-        except Exception as exc:
-            app.logger.error("知识库问答失败，异常类型：%s", type(exc).__name__)
-            return jsonify({"success": False, "error": "问答服务暂不可用，请检查数据库和模型配置"}), 503
-        return jsonify({"success": True, **result})
-
-    @app.errorhandler(HTTPException)
-    def http_error(error):
-        messages = {404: "接口不存在", 405: "请求方法不支持", 413: "请求内容过大"}
-        return jsonify({"success": False, "error": messages.get(error.code, error.name)}), error.code
+    CORS(app)  # 启用跨域支持，允许前端访问
+    
+    # 注册向量数据库路由
+    register_vector_routes(app)
+    
+    @app.route('/')
+    def index():
+        return "RAG Backend Service is Running!"
 
     return app
 
-
-if __name__ == "__main__":
-    create_app().run(
-        host="127.0.0.1", port=int(os.getenv("FLASK_PORT", "5000")),
-        debug=False, use_reloader=False, threaded=False,
-    )
+if __name__ == '__main__':
+    app = create_app()
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    port = int(os.getenv('FLASK_PORT', 5000))
+    debug = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    
+    print("启动 RAG 后端服务...")
+    print(f"API 地址: http://{host if host != '0.0.0.0' else 'localhost'}:{port}/api/vector/")
+    app.run(host=host, port=port, debug=debug)
