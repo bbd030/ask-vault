@@ -6,6 +6,7 @@ const documents = ref([])
 const documentsLoading = ref(false)
 const documentsError = ref('')
 const currentDocument = ref(null)
+const searchAll = ref(false)
 
 async function refreshDocuments() {
   if (documentsLoading.value || busy.value || uploading.value) return
@@ -15,6 +16,10 @@ async function refreshDocuments() {
   const timer = setTimeout(() => controller.abort(), 10000)
   try {
     documents.value = await fetchDocuments({ signal: controller.signal })
+    if (searchAll.value && !documents.value.length) {
+      searchAll.value = false
+      newConversation()
+    }
     if (currentDocument.value && !documents.value.some(document => document.id === currentDocument.value.id)) {
       currentDocument.value = null
       uploadedDocument.value = null
@@ -28,7 +33,8 @@ async function refreshDocuments() {
 function switchDocument(event) {
   if (busy.value || uploading.value || documentsLoading.value) return
   const id = event.target.value
-  if (id === (currentDocument.value?.id || '')) return
+  if (id === (searchAll.value ? 'all' : currentDocument.value?.id || '')) return
+  searchAll.value = id === 'all'
   currentDocument.value = documents.value.find(document => document.id === id) || null
   uploadedDocument.value = null
   newConversation()
@@ -54,6 +60,7 @@ async function submitUpload() {
   try {
     uploadedDocument.value = await uploadDocument(selectedFile.value, { signal: controller.signal })
     documents.value = [uploadedDocument.value, ...documents.value.filter(document => document.id !== uploadedDocument.value.id)]
+    searchAll.value = false
     currentDocument.value = uploadedDocument.value
     newConversation()
     selectedFile.value = null
@@ -77,7 +84,7 @@ let sequence = 0
 const examples = ['报销需要哪些材料？', '报销申请应在什么时候提交？', '超过提交日期会怎样处理？']
 const activeAnswer = computed(() => messages.value.find(message => message.id === selectedAnswerId.value))
 const connectionLabel = computed(() => ({ checking: '正在连接接口', online: '问答接口已连接', offline: '问答接口未连接' }[connection.value]))
-const sourceKey = source => `${source.source}:${source.chunk_id}`
+const sourceKey = source => `${source.document_id || source.source}:${source.chunk_id}`
 const referenceFor = match => activeAnswer.value?.sources.find(source => sourceKey(source) === sourceKey(match))
 const scrollToEnd = async () => { await nextTick(); chatEnd.value?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }
 
@@ -104,7 +111,7 @@ async function runQuery(message) {
   const timer = setTimeout(() => controller.abort(), 90000)
   scrollToEnd()
   try {
-    const result = await requestQuestion(message.question, message.topK, { signal: controller.signal, documentId: message.documentId })
+    const result = await requestQuestion(message.question, message.topK, { signal: controller.signal, documentId: message.documentId, documentIds: message.documentIds })
     message.answer = result.answer; message.sources = result.sources; message.matches = result.matches; message.state = 'done'
     selectedAnswerId.value = message.id
     selectedSource.value = result.sources.length ? sourceKey(result.sources[0]) : ''
@@ -119,7 +126,7 @@ async function submitQuestion() {
   const text = question.value.trim()
   if (!text || busy.value || uploading.value || documentsLoading.value) return
   messages.value.push({ id: ++sequence, role: 'user', text })
-  const reply = reactive({ id: ++sequence, role: 'assistant', question: text, documentId: currentDocument.value?.id, topK: topK.value, state: 'loading', answer: '', sources: [], matches: [], error: '' })
+  const reply = reactive({ id: ++sequence, role: 'assistant', question: text, documentId: currentDocument.value?.id, documentIds: searchAll.value ? documents.value.map(document => document.id) : undefined, topK: topK.value, state: 'loading', answer: '', sources: [], matches: [], error: '' })
   messages.value.push(reply); question.value = ''
   await runQuery(reply)
 }
@@ -136,18 +143,20 @@ onMounted(() => { refreshHealth(); refreshDocuments() })
       <a class="brand" href="/" aria-label="AskVault 首页"><span class="brand-mark">A</span><span>AskVault<small>让知识成为答案</small></span></a>
       <p class="nav-caption">工作空间</p>
       <div class="nav-item active"><span class="nav-icon">◈</span>知识问答</div>
-      <section class="library-card"><span class="eyebrow">当前资料</span><div class="file-row"><span class="file-icon">{{ currentDocument?.filename.split('.').at(-1).toUpperCase() || 'TXT' }}</span><div><strong>{{ currentDocument?.filename || 'sample.txt' }}</strong><span>当前问答资料</span></div></div><p>围绕文档提问，查看回答与参考片段。</p></section>
+      <section class="library-card"><span class="eyebrow">当前资料</span><div class="file-row"><span class="file-icon">{{ currentDocument?.filename.split('.').at(-1).toUpperCase() || 'TXT' }}</span><div><strong>{{ searchAll ? '全部上传资料' : currentDocument?.filename || 'sample.txt' }}</strong><span>当前问答资料</span></div></div><p>围绕文档提问，查看回答与参考片段。</p></section>
       <section class="documents-card" aria-labelledby="documents-heading">
         <div class="documents-heading"><h2 id="documents-heading">文档列表</h2><button type="button" @click="refreshDocuments" :disabled="documentsLoading || uploading || busy">{{ documentsLoading ? '加载中…' : '刷新列表' }}</button></div>
         <label for="current-document">选择问答资料</label>
-        <select id="current-document" :value="currentDocument?.id || ''" @change="switchDocument" :disabled="documentsLoading || uploading || busy">
+        <select id="current-document" :value="searchAll ? 'all' : currentDocument?.id || ''" @change="switchDocument" :disabled="documentsLoading || uploading || busy">
           <option value="">sample.txt（默认资料）</option>
+          <option v-if="documents.length" value="all">全部上传资料</option>
           <option v-for="document in documents" :key="document.id" :value="document.id">{{ document.filename }} · {{ document.id.slice(0, 6) }} · {{ (document.size_bytes / 1024).toFixed(1) }} KiB</option>
         </select>
+        <a v-if="currentDocument" class="document-download" :href="`/api/documents/${currentDocument.id}/download`">下载原文件</a>
         <p v-if="documentsLoading" role="status">正在读取已上传的资料…</p>
         <p v-else-if="documentsError" role="alert" class="upload-error">{{ documentsError }}</p>
         <p v-else-if="!documents.length">还没有上传资料，可先使用默认文档。</p>
-        <p v-else>已上传 {{ documents.length }} 份资料。切换会清空当前对话，每次只查询所选文档。</p>
+        <p v-else>已上传 {{ documents.length }} 份资料。切换会清空当前对话，可选择一份或全部上传资料。</p>
       </section>
       <section class="upload-card" aria-labelledby="upload-heading">
         <h2 id="upload-heading">上传资料</h2>
@@ -175,8 +184,8 @@ onMounted(() => { refreshHealth(); refreshDocuments() })
         <div class="chat-history" aria-live="polite" aria-busy="busy">
           <div v-if="!messages.length" class="welcome">
             <div class="welcome-icon"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M7 6h13l5 5v15H7V6Z" stroke="currentColor" stroke-width="1.7"/><path d="M19 6v6h6M11 17h10M11 21h7" stroke="currentColor" stroke-width="1.7"/></svg></div>
-            <h2>答案，从你的资料开始</h2><p>{{ currentDocument ? '请围绕当前上传的资料提问。' : '试着询问报销材料、提交时间或具体规定。' }}</p>
-            <div v-if="!currentDocument" class="suggestions"><button v-for="example in examples" :key="example" @click="chooseExample(example)">{{ example }}<span>试着提问</span></button></div>
+            <h2>答案，从你的资料开始</h2><p>{{ (currentDocument || searchAll) ? '请围绕当前上传的资料提问。' : '试着询问报销材料、提交时间或具体规定。' }}</p>
+            <div v-if="!currentDocument && !searchAll" class="suggestions"><button v-for="example in examples" :key="example" @click="chooseExample(example)">{{ example }}<span>试着提问</span></button></div>
           </div>
           <article v-for="message in messages" :key="message.id" class="message" :class="message.role">
             <template v-if="message.role === 'user'"><div class="user-bubble">{{ message.text }}</div></template>

@@ -104,7 +104,8 @@ class KnowledgeBase:
             save_index(index_path, metadata, records)
         return records, metadata
 
-    def ask(self, question: str, top_k: int = 2, document_id: str | None = None) -> dict:
+    def ask(self, question: str, top_k: int = 2, document_id: str | None = None,
+            document_ids: list[str] | None = None) -> dict:
         if not isinstance(question, str) or not question.strip():
             raise ValueError("问题不能为空")
         question = question.strip()
@@ -115,27 +116,40 @@ class KnowledgeBase:
         backend = os.getenv("VECTOR_BACKEND", "milvus").strip().lower()
         if backend not in {"milvus", "json"}:
             raise RuntimeError("VECTOR_BACKEND 只能设置为 milvus 或 json")
-        records, metadata = self.prepare(document_id=document_id)
+        selected_ids = document_ids if document_ids is not None else [document_id]
+        if not selected_ids:
+            raise ValueError("请至少指定一份资料")
+        prepared = [self.prepare(document_id=selected_id) for selected_id in selected_ids]
         query_vector = embed_text(question, text_type="query")
-        if backend == "milvus":
-            store = MilvusVectorStore(
-                uri=os.getenv("MILVUS_URI", "http://127.0.0.1:19630"),
-                metadata=metadata, dimension=len(query_vector),
-                collection_prefix=os.getenv("MILVUS_COLLECTION", "ask_vault"),
-            )
-            try:
-                store.sync_records(records)
-                results = store.search(query_vector, top_k=top_k)
-            finally:
-                store.close()
-        else:
-            results = search_chunks(records, query_vector, top_k=top_k)
+        results = []
+        for selected_id, (records, metadata) in zip(selected_ids, prepared):
+            if backend == "milvus":
+                store = MilvusVectorStore(
+                    uri=os.getenv("MILVUS_URI", "http://127.0.0.1:19630"),
+                    metadata=metadata, dimension=len(query_vector),
+                    collection_prefix=os.getenv("MILVUS_COLLECTION", "ask_vault"),
+                )
+                try:
+                    store.sync_records(records)
+                    document_results = store.search(query_vector, top_k=top_k)
+                finally:
+                    store.close()
+            else:
+                document_results = search_chunks(records, query_vector, top_k=top_k)
+            for result in document_results:
+                record = {**result["record"]}
+                if selected_id is not None:
+                    record["document_id"] = selected_id
+                results.append({"score": result["score"], "record": record})
+        results.sort(key=lambda item: item["score"], reverse=True)
+        results = results[:top_k]
         answer = answer_question(question, results)
         matches = [{
             "score": result["score"],
             "source": result["record"]["source"],
             "chunk_id": result["record"]["chunk_id"],
             "text": result["record"]["text"],
+            **({"document_id": result["record"]["document_id"]} if "document_id" in result["record"] else {}),
         } for result in results]
         return {
             "question": question, "answer": answer["answer"],

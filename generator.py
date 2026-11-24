@@ -43,12 +43,14 @@ def answer_question(
             "id": index,
             "source": record["source"],
             "chunk_id": record["chunk_id"],
+            **({"document_id": record["document_id"]} if "document_id" in record else {}),
             "text": record["text"],
         })
         sources.append({
             "id": index,
             "source": record["source"],
             "chunk_id": record["chunk_id"],
+            **({"document_id": record["document_id"]} if "document_id" in record else {}),
         })
 
     api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()

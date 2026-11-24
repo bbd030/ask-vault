@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file, abort
 from werkzeug.exceptions import HTTPException
 
 from document_loader import document_suffix, extract_document_text
@@ -122,6 +122,29 @@ def create_app(knowledge_base=None) -> Flask:
             document.pop("modified_ns")
         return jsonify({"success": True, "documents": documents})
 
+    def uploaded_document(document_id):
+        if not re.fullmatch(r"[0-9a-f]{32}", document_id):
+            abort(404)
+        folder = Path(app.config["UPLOAD_FOLDER"])
+        info_path = folder / f"{document_id}.json"
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+            filename = info.get("filename") if isinstance(info, dict) else None
+            if not isinstance(filename, str):
+                abort(404)
+            file_path = folder / f"{document_id}{document_suffix(filename)}"
+        except (FileNotFoundError, ValueError):
+            abort(404)
+        if not file_path.is_file():
+            abort(404)
+        return info_path, file_path, filename
+
+    @app.get("/api/documents/<document_id>/download")
+    def download_document(document_id):
+        _, file_path, filename = uploaded_document(document_id)
+        return send_file(file_path.resolve(), as_attachment=True, download_name=filename,
+                         mimetype="application/octet-stream", max_age=0)
+
     @app.get("/api/health")
     def health():
         # 这里只检查 HTTP 服务存活，不触发模型调用或数据库连接。
@@ -145,8 +168,18 @@ def create_app(knowledge_base=None) -> Flask:
         document_id = data.get("document_id")
         if "document_id" in data and (not isinstance(document_id, str) or not re.fullmatch(r"[0-9a-f]{32}", document_id)):
             return jsonify({"success": False, "error": "document_id 必须是 32 位小写十六进制编号"}), 400
+        document_ids = data.get("document_ids")
+        if "document_ids" in data:
+            if "document_id" in data or not isinstance(document_ids, list) or not document_ids:
+                return jsonify({"success": False, "error": "请仅指定一份资料或一组资料编号"}), 400
+            if any(not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{32}", item) for item in document_ids):
+                return jsonify({"success": False, "error": "资料编号格式不正确"}), 400
+            if len(document_ids) != len(set(document_ids)):
+                return jsonify({"success": False, "error": "资料编号不能重复"}), 400
         try:
-            if document_id is None:
+            if document_ids is not None:
+                result = service.ask(question.strip(), top_k=top_k, document_ids=document_ids)
+            elif document_id is None:
                 result = service.ask(question.strip(), top_k=top_k)
             else:
                 result = service.ask(question.strip(), top_k=top_k, document_id=document_id)

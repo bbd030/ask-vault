@@ -1,10 +1,10 @@
-export async function requestQuestion(question, topK = 2, { fetchImpl = fetch, signal, documentId } = {}) {
+export async function requestQuestion(question, topK = 2, { fetchImpl = fetch, signal, documentId, documentIds } = {}) {
   if (typeof question !== 'string' || !question.trim()) throw new Error('请输入问题。')
   if (question.trim().length > 2000) throw new Error('问题不能超过 2000 个字符。')
   if (!Number.isInteger(topK) || topK < 1 || topK > 10) throw new Error('参考片段数量必须为 1 到 10。')
   const response = await fetchImpl('/api/query', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question: question.trim(), top_k: topK, ...(documentId ? { document_id: documentId } : {}) }), signal,
+    body: JSON.stringify({ question: question.trim(), top_k: topK, ...(documentIds ? { document_ids: documentIds } : documentId ? { document_id: documentId } : {}) }), signal,
   })
   let data
   try { data = await response.json() } catch { throw new Error('服务返回了无法识别的内容，请稍后重试。') }

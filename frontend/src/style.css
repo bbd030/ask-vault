@@ -35,3 +35,5 @@
 @media(max-width:900px){.documents-card{flex:0 0 100%;margin-top:0}.library-card{max-width:50%}.file-row{min-width:0}.file-row>div{min-width:0}}
 
 @media(min-width:901px){.sidebar{height:100dvh;min-height:0;overflow-y:auto}.sidebar-note{padding-top:28px}}
+
+.document-download{display:inline-block;margin-top:10px;color:#b1edd9;font-size:13px;text-decoration:underline;text-underline-offset:3px}
